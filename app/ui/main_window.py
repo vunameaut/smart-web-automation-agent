@@ -27,9 +27,9 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QSplitter,
     QFrame,
-    QHeaderView,
+    QDateTimeEdit,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QDateTime
 from PySide6.QtGui import QPixmap
 
 from app.config import get_settings
@@ -39,6 +39,7 @@ from app.core.task_manager import TaskManager
 from app.core.workflow_models import WorkflowDefinition, WorkflowStep
 from app.ui.step_dialog import StepEditorDialog
 from app.ui.task_worker import TaskExecutionWorker
+from app.ui.task_variables_dialog import TaskVariablesDialog
 from app.utils.logging_config import get_logger
 
 logger = get_logger("autoweb.ui")
@@ -50,14 +51,14 @@ class CreateTaskDialog(QDialog):
     def __init__(self, parent=None, workflows=None):
         super().__init__(parent)
         self.setWindowTitle("➕ Thêm Nhiệm Vụ Mới")
-        self.resize(520, 380)
+        self.resize(560, 520)
         self.workflows = workflows or []
         self._init_ui()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        info_box = QLabel("Điền thông tin nhiệm vụ bên dưới để quản lý hoặc lên lịch chạy:")
+        info_box = QLabel("Điền thông tin nhiệm vụ, biến dữ liệu và thiết lập lịch chạy:")
         info_box.setStyleSheet("color: #94a3b8; font-size: 13px; margin-bottom: 10px;")
         layout.addWidget(info_box)
 
@@ -81,6 +82,23 @@ class CreateTaskDialog(QDialog):
         self.spin_priority.setValue(1)
         form.addRow("Mức độ ưu tiên (1-10):", self.spin_priority)
 
+        # Biến dữ liệu JSON
+        self.txt_vars = QTextEdit()
+        self.txt_vars.setPlaceholderText('{\n  "portal_url": "https://example.com",\n  "student_name": "Nguyễn Văn A"\n}')
+        self.txt_vars.setMaximumHeight(90)
+        form.addRow("Biến dữ liệu (JSON):", self.txt_vars)
+
+        # Đặt lịch chạy
+        self.chk_schedule = QCheckBox("Lên lịch chạy tự động")
+        self.chk_schedule.toggled.connect(self._toggle_schedule)
+        form.addRow("Đặt lịch:", self.chk_schedule)
+
+        self.dt_run_at = QDateTimeEdit()
+        self.dt_run_at.setDateTime(QDateTime.currentDateTime().addSecs(3600))
+        self.dt_run_at.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+        self.dt_run_at.setEnabled(False)
+        form.addRow("Thời gian chạy:", self.dt_run_at)
+
         self.chk_enabled = QCheckBox("Kích hoạt nhiệm vụ ngay")
         self.chk_enabled.setChecked(True)
         form.addRow("Trạng thái:", self.chk_enabled)
@@ -99,6 +117,9 @@ class CreateTaskDialog(QDialog):
         btn_box.addWidget(btn_save)
         layout.addLayout(btn_box)
 
+    def _toggle_schedule(self, checked):
+        self.dt_run_at.setEnabled(checked)
+
     def _validate_and_accept(self):
         if not self.txt_name.text().strip():
             QMessageBox.warning(self, "Lỗi", "Vui lòng nhập Tên nhiệm vụ.")
@@ -106,15 +127,36 @@ class CreateTaskDialog(QDialog):
         if self.cbo_workflow.count() == 0:
             QMessageBox.warning(self, "Lỗi", "Chưa có quy trình (Workflow) nào.")
             return
+
+        raw_vars = self.txt_vars.toPlainText().strip()
+        if raw_vars:
+            try:
+                parsed = json.loads(raw_vars)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Biến dữ liệu phải là JSON object dạng {...}")
+            except Exception as e:
+                QMessageBox.critical(self, "Lỗi cú pháp JSON", f"Biến dữ liệu không hợp lệ:\n{e}")
+                return
+
         self.accept()
 
     def get_data(self):
+        raw_vars = self.txt_vars.toPlainText().strip()
+        parsed_vars = json.loads(raw_vars) if raw_vars else {}
+
+        sched_cfg = None
+        if self.chk_schedule.isChecked():
+            iso_str = self.dt_run_at.dateTime().toPython().isoformat()
+            sched_cfg = {"run_at": iso_str}
+
         return {
             "name": self.txt_name.text().strip(),
             "workflow_id": self.cbo_workflow.currentData(),
             "description": self.txt_desc.text().strip(),
             "priority": self.spin_priority.value(),
             "enabled": self.chk_enabled.isChecked(),
+            "variables": parsed_vars,
+            "schedule_config": sched_cfg,
         }
 
 
@@ -127,18 +169,26 @@ class MainWindow(QMainWindow):
         self.repo = Repository()
         self.task_manager = TaskManager(repository=self.repo)
         
+        # Khởi động TaskScheduler khi mở app
+        self.task_manager.scheduler.start()
+
         self.active_worker = None
         self.current_selected_workflow_id = None
         self.current_workflow_def = None
 
         self.setWindowTitle("Smart Web Automation Agent - Pro Control Center")
-        self.resize(1250, 800)
+        self.resize(1280, 820)
         self.setMinimumSize(1000, 700)
         
         self._setup_style()
         self._init_layout()
         self._seed_sample_data()
         self._load_all_data()
+
+    def closeEvent(self, event):
+        """Dừng scheduler khi đóng ứng dụng."""
+        self.task_manager.scheduler.shutdown()
+        event.accept()
 
     def _setup_style(self):
         self.setStyleSheet("""
@@ -244,14 +294,14 @@ class MainWindow(QMainWindow):
                 border: none;
             }
 
-            QTextEdit {
+            QTextEdit, QLineEdit, QDateTimeEdit {
                 background-color: #0b1120;
                 color: #38bdf8;
                 font-family: Consolas, monospace;
                 font-size: 12px;
                 border: 1px solid #334155;
                 border-radius: 6px;
-                padding: 8px;
+                padding: 6px;
             }
         """)
 
@@ -286,14 +336,14 @@ class MainWindow(QMainWindow):
         status_box = QFrame()
         status_box.setStyleSheet("background-color: #0f172a; margin: 10px; border-radius: 6px; padding: 10px;")
         box_layout = QVBoxLayout(status_box)
-        self.lbl_system_status = QLabel("🟢 Sẵn Sàng")
-        self.lbl_system_status.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 13px;")
+        self.lbl_system_status = QLabel("🟢 Sẵn Sàng (Scheduler Active)")
+        self.lbl_system_status.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 12px;")
         box_layout.addWidget(self.lbl_system_status)
         side_layout.addWidget(status_box)
 
         layout.addWidget(sidebar)
 
-        # 2. Stacked Content Area bên phải
+        # 2. Content Area bên phải
         self.stack = QStackedWidget()
         self.stack.setObjectName("content-area")
 
@@ -334,9 +384,9 @@ class MainWindow(QMainWindow):
         b_title.setStyleSheet("color: #38bdf8; font-size: 16px; font-weight: bold;")
         b_desc = QLabel(
             "Quy trình sử dụng:\n"
-            "• Bước 1: Sang tab 'Trình Tạo Kịch Bản' để xem hoặc thêm các bước (mở trang, điền form, nhấp chuột, chụp ảnh).\n"
-            "• Bước 2: Vào 'Quản Lý Nhiệm Vụ' để chạy ngay hoặc chạy thử an toàn (Dry-run).\n"
-            "• Bước 3: Xem Chromium thao tác và ảnh chụp màn hình trực tiếp tại 'Giám Sát Realtime'."
+            "• Bước 1: Sang 'Trình Tạo Kịch Bản' để cấu hình các bước tự động hóa (Mở trang, Điền form, Nhấp chuột, Chụp ảnh).\n"
+            "• Bước 2: Vào 'Quản Lý Nhiệm Vụ' để cấu hình Biến Dữ Liệu (URL, thông tin điền), Đặt lịch chạy hoặc Chạy thử Dry-run.\n"
+            "• Bước 3: Xem Chromium thao tác và ảnh chụp màn hình chứng từ tại 'Giám Sát Realtime'."
         )
         b_desc.setStyleSheet("color: #cbd5e1; font-size: 13px; line-height: 150%;")
         b_layout.addWidget(b_title)
@@ -393,7 +443,7 @@ class MainWindow(QMainWindow):
 
         header = QLabel("Danh Sách Nhiệm Vụ Tự Động Hóa")
         header.setProperty("class", "heading")
-        sub = QLabel("Kích hoạt, điều chỉnh hoặc chạy thử kịch bản tự động trên Chromium.")
+        sub = QLabel("Kích hoạt, cấu hình biến dữ liệu, đặt lịch hoặc chạy thử an toàn (Dry-run).")
         sub.setProperty("class", "subheading")
         layout.addWidget(header)
         layout.addWidget(sub)
@@ -402,6 +452,10 @@ class MainWindow(QMainWindow):
         btn_add = QPushButton("➕ Thêm Nhiệm Vụ Mới")
         btn_add.setProperty("class", "btn-success")
         btn_add.clicked.connect(self._open_create_task_modal)
+
+        btn_vars = QPushButton("⚙️ Cấu Hình Biến Cho Task")
+        btn_vars.setProperty("class", "btn-secondary")
+        btn_vars.clicked.connect(self._open_edit_task_vars)
 
         self.btn_dry_run = QPushButton("🛡️ Chạy Thử An Toàn (Dry-run)")
         self.btn_dry_run.setProperty("class", "btn-warning")
@@ -416,33 +470,33 @@ class MainWindow(QMainWindow):
         btn_refresh.clicked.connect(self._load_tasks_table)
 
         toolbar.addWidget(btn_add)
+        toolbar.addWidget(btn_vars)
         toolbar.addWidget(self.btn_dry_run)
         toolbar.addWidget(self.btn_run)
         toolbar.addWidget(btn_refresh)
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
-        self.table_tasks = QTableWidget(0, 6)
-        self.table_tasks.setHorizontalHeaderLabels(["ID", "Tên nhiệm vụ", "Độ ưu tiên", "Trạng thái", "Workflow Gắn Kèm", "Thao tác"])
+        self.table_tasks = QTableWidget(0, 7)
+        self.table_tasks.setHorizontalHeaderLabels(["ID", "Tên nhiệm vụ", "Độ ưu tiên", "Trạng thái", "Lịch chạy", "Biến số", "Thao tác"])
         self.table_tasks.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_tasks.setSelectionBehavior(QTableWidget.SelectRows)
         layout.addWidget(self.table_tasks)
 
         return widget
 
-    # ---------------- VIEW 3: TRÌNH TẠO KỊCH BẢN (WORKFLOW BUILDER ĐỦ TÍNH NĂNG) ----------------
+    # ---------------- VIEW 3: TRÌNH TẠO KỊCH BẢN (WORKFLOW BUILDER) ----------------
     def _build_workflow_builder_view(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
         header = QLabel("Trình Xây Dựng & Quản Lý Kịch Bản (Workflow Builder)")
         header.setProperty("class", "heading")
-        sub = QLabel("Thêm, sửa, xóa hoặc sắp xếp trực quan từng bước thao tác (Mở trang, Điền form, Nhấp chuột, Chờ đợi).")
+        sub = QLabel("Thêm, sửa, xóa hoặc cấu hình trực quan từng bước thao tác (Mở trang, Điền form, Nhấp chuột, Chờ đợi).")
         sub.setProperty("class", "subheading")
         layout.addWidget(header)
         layout.addWidget(sub)
 
-        # Chọn kịch bản
         wf_selector_box = QHBoxLayout()
         wf_selector_box.addWidget(QLabel("<b>Đang chọn kịch bản:</b>"))
         self.cbo_active_wf = QComboBox()
@@ -456,10 +510,8 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(wf_selector_box)
 
-        # Splitter: Bảng Steps bên trái, Chi tiết YAML bên phải
         splitter = QSplitter(Qt.Horizontal)
 
-        # Bảng Steps trực quan bên trái
         left_box = QFrame()
         left_box.setProperty("class", "card")
         l_layout = QVBoxLayout(left_box)
@@ -493,7 +545,6 @@ class MainWindow(QMainWindow):
 
         splitter.addWidget(left_box)
 
-        # YAML code viewer bên phải
         right_box = QFrame()
         right_box.setProperty("class", "card")
         right_box.setFixedWidth(420)
@@ -576,6 +627,7 @@ class MainWindow(QMainWindow):
         form.addRow("Độ trễ thao tác (Slow-mo):", QLabel(f"{self.settings.SLOW_MO_MS} ms"))
         form.addRow("Thời gian chờ (Timeout):", QLabel(f"{self.settings.DEFAULT_TIMEOUT_MS} ms"))
         form.addRow("Thư mục lưu ảnh lỗi/chứng từ:", QLabel(str(self.settings.SCREENSHOTS_DIR)))
+        form.addRow("Thư mục lưu phiên (Profiles):", QLabel(str(self.settings.PROFILES_DIR)))
 
         layout.addWidget(card)
         layout.addStretch()
@@ -594,6 +646,11 @@ class MainWindow(QMainWindow):
                     workflow_id=wf_model.id,
                     description="Mô phỏng quy trình mở cổng, nhập tên, mã môn học và submit an toàn.",
                     priority=2,
+                    variables={
+                        "portal_url": (self.settings.BASE_DIR / "tests" / "fixtures" / "test_page.html").as_uri(),
+                        "student_name": "Nguyễn Văn A",
+                        "course_code": "CS101-AUTOMATION",
+                    }
                 )
 
     def _load_all_data(self):
@@ -625,12 +682,53 @@ class MainWindow(QMainWindow):
             self.table_tasks.setItem(i, 1, QTableWidgetItem(t.name))
             self.table_tasks.setItem(i, 2, QTableWidgetItem(f"Ưu tiên {t.priority}"))
             self.table_tasks.setItem(i, 3, QTableWidgetItem("🟢 Bật" if t.enabled else "⚪ Tắt"))
-            self.table_tasks.setItem(i, 4, QTableWidgetItem(t.workflow_id[:8]))
+            
+            sched_str = "Thủ công"
+            if t.schedule_config:
+                try:
+                    c = json.loads(t.schedule_config)
+                    sched_str = c.get("run_at", str(c))
+                except Exception:
+                    pass
+            self.table_tasks.setItem(i, 4, QTableWidgetItem(sched_str))
+
+            vars_count = 0
+            if t.variables_json:
+                try:
+                    vars_count = len(json.loads(t.variables_json))
+                except Exception:
+                    pass
+            self.table_tasks.setItem(i, 5, QTableWidgetItem(f"{vars_count} biến"))
 
             btn_toggle = QPushButton("Đổi Trạng Thái")
             btn_toggle.setProperty("class", "btn-secondary")
             btn_toggle.clicked.connect(lambda checked, tid=t.id: self._toggle_task(tid))
-            self.table_tasks.setCellWidget(i, 5, btn_toggle)
+            self.table_tasks.setCellWidget(i, 6, btn_toggle)
+
+    def _open_edit_task_vars(self):
+        curr_row = self.table_tasks.currentRow()
+        if curr_row < 0:
+            QMessageBox.warning(self, "Thông báo", "Vui lòng chọn một nhiệm vụ trong danh sách để xem/sửa biến.")
+            return
+
+        task_id = self.table_tasks.item(curr_row, 0).data(Qt.UserRole)
+        task = self.task_manager.get_task(task_id)
+        if not task:
+            return
+
+        current_vars = {}
+        if task.variables_json:
+            try:
+                current_vars = json.loads(task.variables_json)
+            except Exception:
+                pass
+
+        dlg = TaskVariablesDialog(self, task_name=task.name, current_vars=current_vars)
+        if dlg.exec() == QDialog.Accepted:
+            new_vars = dlg.get_variables()
+            self.task_manager.update_variables(task_id, new_vars)
+            self._load_tasks_table()
+            QMessageBox.information(self, "Thành công", f"Đã cập nhật biến dữ liệu cho nhiệm vụ '{task.name}'!")
 
     def _load_workflow_dropdown(self):
         self.cbo_active_wf.blockSignals(True)
@@ -751,7 +849,6 @@ class MainWindow(QMainWindow):
             )
             model = self.repo.save_workflow(new_wf)
             self._load_workflow_dropdown()
-            # Select new
             for i in range(self.cbo_active_wf.count()):
                 if self.cbo_active_wf.itemData(i) == model.id:
                     self.cbo_active_wf.setCurrentIndex(i)
@@ -772,6 +869,8 @@ class MainWindow(QMainWindow):
                 workflow_id=data["workflow_id"],
                 description=data["description"],
                 priority=data["priority"],
+                variables=data.get("variables"),
+                schedule_config=data.get("schedule_config"),
             )
             self._load_all_data()
             self._switch_view(1)
@@ -791,18 +890,17 @@ class MainWindow(QMainWindow):
         
         reply = QMessageBox.question(self, "Xác nhận chạy", msg, QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self._switch_view(3)  # Chuyển sang Live Monitor
+            self._switch_view(3)
             self.lbl_system_status.setText("🟡 Đang Chạy...")
             self.lbl_system_status.setStyleSheet("color: #facc15; font-weight: bold; font-size: 13px;")
 
-            # Chạy trong background thread không làm treo giao diện
             self.active_worker = TaskExecutionWorker(self.task_manager, task_id=task_id, dry_run=dry_run)
             self.active_worker.finished_signal.connect(self._on_task_finished)
             self.active_worker.error_signal.connect(self._on_task_error)
             self.active_worker.start()
 
     def _on_task_finished(self, result):
-        self.lbl_system_status.setText("🟢 Sẵn Sàng")
+        self.lbl_system_status.setText("🟢 Sẵn Sàng (Scheduler Active)")
         self.lbl_system_status.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 13px;")
         self._load_all_data()
         status = result.get("status", "SUCCESS")
@@ -818,7 +916,6 @@ class MainWindow(QMainWindow):
         self.lbl_system_status.setText("🟡 Đang Chạy Demo...")
         self.lbl_system_status.setStyleSheet("color: #facc15; font-weight: bold; font-size: 13px;")
         
-        # Lấy task demo đầu tiên
         tasks = self.task_manager.list_tasks()
         if tasks:
             self.active_worker = TaskExecutionWorker(self.task_manager, task_id=tasks[0].id, dry_run=False)
@@ -829,7 +926,7 @@ class MainWindow(QMainWindow):
             from demo_phase1 import run_demo
             import asyncio
             asyncio.run(run_demo())
-            self.lbl_system_status.setText("🟢 Sẵn Sàng")
+            self.lbl_system_status.setText("🟢 Sẵn Sàng (Scheduler Active)")
             self.lbl_system_status.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 13px;")
             QMessageBox.information(self, "Demo hoàn tất", "Kịch bản Demo đã chạy xong!")
 

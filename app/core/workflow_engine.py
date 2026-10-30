@@ -16,6 +16,7 @@ from app.core.workflow_models import (
     RiskLevel,
 )
 from app.core.action_registry import ActionRegistry, get_action_registry
+from app.core.recovery_engine import RecoveryEngine, RetryPolicy, ErrorCategory
 from app.actions.base import ActionContext
 from app.utils.logging_config import get_logger
 
@@ -28,13 +29,15 @@ class VerificationError(Exception):
 
 
 class WorkflowEngine:
-    """Động cơ điều phối và thực thi Workflow tuần tự có kiểm chứng."""
+    """Động cơ điều phối và thực thi Workflow tuần tự có kiểm chứng & Recovery."""
 
     def __init__(
         self,
         registry: Optional[ActionRegistry] = None,
+        recovery_engine: Optional[RecoveryEngine] = None,
     ):
         self.registry = registry or get_action_registry()
+        self.recovery = recovery_engine or RecoveryEngine()
 
     async def verify_condition(
         self,
@@ -106,7 +109,7 @@ class WorkflowEngine:
         step: WorkflowStep,
         context: ActionContext,
     ) -> StepExecutionResult:
-        """Thực thi một bước đơn lẻ với kiểm tra trước và sau."""
+        """Thực thi một bước đơn lẻ với tích hợp Recovery Engine, retry và backoff."""
         start_time = time.perf_counter()
         action_name = step.action.lower()
         action_impl = self.registry.get(action_name)
@@ -153,12 +156,28 @@ class WorkflowEngine:
                 duration_ms=(time.perf_counter() - start_time) * 1000,
             )
 
-        # 3. Thực thi Action chính
+        # 3. Thực thi Action chính kết nối Recovery Engine (Retry Policy)
         output = None
+        policy = RetryPolicy(max_retries=2, base_delay_seconds=1.0)
+        
+        async def _do_action():
+            return await action_impl.execute(context, step.params)
+
+        def _get_dom():
+            try:
+                return context.browser.page.content()
+            except Exception:
+                return ""
+
         try:
-            output = await action_impl.execute(context, step.params)
+            # Thực thi có phục hồi
+            output = await self.recovery.execute_with_recovery(
+                action_fn=_do_action,
+                policy=policy,
+                get_dom_fn=_get_dom,
+            )
         except Exception as e:
-            err_msg = f"Thực thi Action '{step.action}' thất bại: {e}"
+            err_msg = f"Thực thi Action '{step.action}' thất bại sau recovery: {e}"
             logger.error(f"[{step.id}] {err_msg}")
             shot = await context.browser.take_screenshot(f"err_exec_{step.id}")
             return StepExecutionResult(
@@ -211,6 +230,7 @@ class WorkflowEngine:
             browser=browser,
             variables=initial_variables or {},
             dry_run=dry_run,
+            target_domains=workflow.target_domains,
         )
 
         logger.info(

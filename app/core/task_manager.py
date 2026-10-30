@@ -22,14 +22,16 @@ class TaskManager:
         workflow_id: str,
         description: Optional[str] = None,
         schedule_config: Optional[Dict[str, Any]] = None,
+        variables: Optional[Dict[str, Any]] = None,
         priority: int = 1,
     ) -> TaskModel:
-        """Tạo một task mới."""
+        """Tạo một task mới có lưu trữ cấu hình biến."""
         task = self.repo.create_task(
             name=name,
             workflow_id=workflow_id,
             description=description,
             schedule_config=schedule_config,
+            variables=variables,
             priority=priority,
         )
         logger.info(f"Đã tạo Task mới: [{task.id}] - '{task.name}'")
@@ -53,8 +55,24 @@ class TaskManager:
             return task
         return None
 
-    async def run_now(self, task_id: str, dry_run: bool = False) -> Dict[str, Any]:
+    def update_variables(self, task_id: str, variables: Dict[str, Any]) -> Optional[TaskModel]:
+        """Cập nhật biến dữ liệu cho task."""
+        return self.repo.update_task_variables(task_id, variables)
+
+    def update_schedule(self, task_id: str, schedule_config: Optional[Dict[str, Any]]) -> Optional[TaskModel]:
+        """Cập nhật cấu hình lịch cho task."""
+        return self.repo.update_task_schedule(task_id, schedule_config)
+
+    async def run_now(
+        self,
+        task_id: str,
+        dry_run: bool = False,
+        custom_variables: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Kích hoạt chạy ngay một task mà không chờ lịch."""
         logger.info(f"Kích hoạt chạy ngay Task [{task_id}] (dry_run={dry_run})...")
-        return await self.scheduler.execute_task_run(task_id=task_id, dry_run=dry_run)
-
+        return await self.scheduler.execute_task_run(
+            task_id=task_id,
+            dry_run=dry_run,
+            custom_variables=custom_variables,
+        )

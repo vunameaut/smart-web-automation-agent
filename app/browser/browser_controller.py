@@ -29,11 +29,14 @@ class BrowserController:
         headless: Optional[bool] = None,
         slow_mo_ms: Optional[int] = None,
         timeout_ms: Optional[int] = None,
+        storage_state_path: Optional[str] = None,
     ):
         self.settings = get_settings()
+        # Đọc cấu hình mặc định từ settings.HEADLESS nếu không truyền tham số
         self.headless = headless if headless is not None else self.settings.HEADLESS
         self.slow_mo_ms = slow_mo_ms if slow_mo_ms is not None else self.settings.SLOW_MO_MS
         self.default_timeout_ms = timeout_ms if timeout_ms is not None else self.settings.DEFAULT_TIMEOUT_MS
+        self.storage_state_path = storage_state_path
 
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
@@ -53,7 +56,7 @@ class BrowserController:
         return self._page
 
     async def start(self) -> Page:
-        """Khởi động Playwright, Chromium, Context và Page."""
+        """Khởi động Playwright, Chromium, Context (hỗ trợ storage_state session) và Page."""
         if self.is_running:
             logger.info("Browser đã đang chạy.")
             return self.page
@@ -67,14 +70,21 @@ class BrowserController:
                 headless=self.headless,
                 slow_mo=self.slow_mo_ms,
             )
-            self._context = await self._browser.new_context(
-                viewport={
+
+            # Cấu hình context kèm storage_state nếu file tồn tại
+            context_args: Dict[str, Any] = {
+                "viewport": {
                     "width": self.settings.VIEWPORT_WIDTH,
                     "height": self.settings.VIEWPORT_HEIGHT,
                 },
-                ignore_https_errors=False,
-            )
-            # Thiết lập default timeout cho tất cả thao tác của page
+                "ignore_https_errors": False,
+            }
+
+            if self.storage_state_path and Path(self.storage_state_path).exists():
+                logger.info(f"Khôi phục phiên đăng nhập từ file: {self.storage_state_path}")
+                context_args["storage_state"] = self.storage_state_path
+
+            self._context = await self._browser.new_context(**context_args)
             self._context.set_default_timeout(self.default_timeout_ms)
             self._page = await self._context.new_page()
             
@@ -85,9 +95,31 @@ class BrowserController:
             await self.stop()
             raise
 
+    async def save_storage_state(self, path: Optional[str] = None) -> Optional[str]:
+        """Lưu lại cookies và local storage của phiên đăng nhập hiện tại."""
+        if not self._context:
+            return None
+        target_path = path or self.storage_state_path
+        if not target_path:
+            # Tạo đường dẫn mặc định
+            target_path = str(self.settings.PROFILES_DIR / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+
+        Path(target_path).parent.mkdir(parents=True, exist_ok=True)
+        await self._context.storage_state(path=target_path)
+        logger.info(f"Đã lưu session state vào: {target_path}")
+        return target_path
+
     async def stop(self) -> None:
         """Đóng an toàn toàn bộ tài nguyên browser, context và tiến trình Playwright."""
         logger.info("Đang đóng các tài nguyên trình duyệt...")
+        
+        # Lưu lại session state nếu có đường dẫn
+        if self._context and self.storage_state_path:
+            try:
+                await self.save_storage_state(self.storage_state_path)
+            except Exception as e:
+                logger.warning(f"Không thể tự động lưu session state trước khi đóng: {e}")
+
         if self._page and not self._page.is_closed():
             try:
                 await self._page.close()
@@ -124,13 +156,7 @@ class BrowserController:
         wait_until: str = "domcontentloaded",
         timeout_ms: Optional[int] = None,
     ) -> bool:
-        """Điều hướng an toàn đến URL được chỉ định.
-        
-        Args:
-            url: Địa chỉ website.
-            wait_until: Trạng thái chờ ('domcontentloaded', 'load', 'commit').
-            timeout_ms: Thời gian timeout cụ thể (mặc định lấy theo config).
-        """
+        """Điều hướng an toàn đến URL được chỉ định."""
         effective_timeout = timeout_ms or self.settings.NAVIGATION_TIMEOUT_MS
         logger.info(f"Đang điều hướng tới: {url} (wait_until={wait_until}, timeout={effective_timeout}ms)")
         try:
@@ -153,10 +179,7 @@ class BrowserController:
         timeout_ms: Optional[int] = None,
         force: bool = False,
     ) -> bool:
-        """Thực hiện click an toàn: kiểm tra visible và enabled trước khi click.
-        
-        Tuân thủ nguyên tắc 'Không click mù quáng'.
-        """
+        """Thực hiện click an toàn: kiểm tra visible và enabled trước khi click."""
         effective_timeout = timeout_ms or self.default_timeout_ms
         loc = resolve_locator(self.page, locator_target)
         desc = locator_target if isinstance(locator_target, str) else (
@@ -165,15 +188,11 @@ class BrowserController:
         logger.info(f"Đang chuẩn bị click vào phần tử: [{desc}]")
 
         try:
-            # 1. Chờ phần tử hiển thị (visible)
             await loc.wait_for(state="visible", timeout=effective_timeout)
-            
-            # 2. Kiểm tra phần tử có bị vô hiệu hóa (disabled) hay không
             if not force and not await loc.is_enabled():
                 logger.warning(f"Phần tử [{desc}] đang ở trạng thái Disabled, không thể click an toàn.")
                 return False
 
-            # 3. Thực hiện click
             await loc.click(timeout=effective_timeout, force=force)
             logger.info(f"Click thành công vào phần tử: [{desc}]")
             return True
@@ -256,4 +275,3 @@ class BrowserController:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.stop()
-

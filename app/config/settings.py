@@ -14,10 +14,11 @@ class Settings(BaseModel):
     LOGS_DIR: Path = Field(default=None)
     ARTIFACTS_DIR: Path = Field(default=None)
     SCREENSHOTS_DIR: Path = Field(default=None)
+    PROFILES_DIR: Path = Field(default=None)
 
     # Cấu hình Browser (Playwright)
     BROWSER_TYPE: str = Field(default="chromium")
-    HEADLESS: bool = Field(default=False)  # Mặc định False để người dùng quan sát được
+    HEADLESS: bool = Field(default=False)  # Mặc định False để quan sát được
     SLOW_MO_MS: int = Field(default=300)   # Giảm tốc độ thao tác nhẹ để ổn định
     DEFAULT_TIMEOUT_MS: int = Field(default=30000)  # 30 giây timeout cho locator/action
     NAVIGATION_TIMEOUT_MS: int = Field(default=30000)
@@ -38,12 +39,15 @@ class Settings(BaseModel):
             self.ARTIFACTS_DIR = self.BASE_DIR / "artifacts"
         if self.SCREENSHOTS_DIR is None:
             self.SCREENSHOTS_DIR = self.ARTIFACTS_DIR / "screenshots"
+        if self.PROFILES_DIR is None:
+            self.PROFILES_DIR = self.DATA_DIR / "browser_profiles"
 
         # Tạo thư mục tự động nếu chưa có
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.LOGS_DIR.mkdir(parents=True, exist_ok=True)
         self.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
         self.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        self.PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 _settings_instance: Optional[Settings] = None
@@ -55,4 +59,3 @@ def get_settings() -> Settings:
     if _settings_instance is None:
         _settings_instance = Settings()
     return _settings_instance
-

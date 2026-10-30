@@ -22,7 +22,13 @@ class Repository:
     """Tập trung các thao tác đọc ghi Database SQLite."""
 
     def __init__(self, session: Optional[Session] = None):
-        self.session = session or get_db_session()
+        self._provided_session = session
+
+    @property
+    def session(self) -> Session:
+        if self._provided_session is None:
+            self._provided_session = get_db_session()
+        return self._provided_session
 
     # --- WORKFLOW CRUD ---
     def save_workflow(self, workflow_def: WorkflowDefinition, workflow_id: Optional[str] = None) -> WorkflowModel:
@@ -61,6 +67,8 @@ class Repository:
         workflow_id: str,
         description: Optional[str] = None,
         schedule_config: Optional[Dict[str, Any]] = None,
+        variables: Optional[Dict[str, Any]] = None,
+        storage_state_path: Optional[str] = None,
         priority: int = 1,
         approval_policy: str = "default",
         enabled: bool = True,
@@ -70,6 +78,8 @@ class Repository:
             workflow_id=workflow_id,
             description=description,
             schedule_config=json.dumps(schedule_config) if schedule_config else None,
+            variables_json=json.dumps(variables, ensure_ascii=False) if variables else None,
+            storage_state_path=storage_state_path,
             priority=priority,
             approval_policy=approval_policy,
             enabled=enabled,
@@ -78,6 +88,24 @@ class Repository:
         self.session.commit()
         self.session.refresh(task)
         return task
+
+    def update_task_variables(self, task_id: str, variables: Dict[str, Any]) -> Optional[TaskModel]:
+        task = self.session.get(TaskModel, task_id)
+        if task:
+            task.variables_json = json.dumps(variables, ensure_ascii=False)
+            task.updated_at = get_utc_now()
+            self.session.commit()
+            return task
+        return None
+
+    def update_task_schedule(self, task_id: str, schedule_config: Optional[Dict[str, Any]]) -> Optional[TaskModel]:
+        task = self.session.get(TaskModel, task_id)
+        if task:
+            task.schedule_config = json.dumps(schedule_config) if schedule_config else None
+            task.updated_at = get_utc_now()
+            self.session.commit()
+            return task
+        return None
 
     def get_task(self, task_id: str) -> Optional[TaskModel]:
         return self.session.get(TaskModel, task_id)
@@ -160,4 +188,3 @@ class Repository:
         self.session.add(artifact)
         self.session.commit()
         return artifact
-

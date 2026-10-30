@@ -49,6 +49,8 @@ class TaskModel(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     workflow_id: Mapped[str] = mapped_column(String(36), ForeignKey("workflows.id"), nullable=False)
     schedule_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON cron/datetime
+    variables_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # JSON chứa biến cho task
+    storage_state_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # File lưu session/cookies
     priority: Mapped[int] = mapped_column(Integer, default=1)
     approval_policy: Mapped[str] = mapped_column(String(50), default="default")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -121,4 +123,3 @@ class AppSettingModel(Base):
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value_json: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=get_utc_now, onupdate=get_utc_now)
-

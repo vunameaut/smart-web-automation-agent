@@ -10,19 +10,22 @@ authors = [{ name = "AI Development Team" }]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "playwright>=1.49.0",
-    "pydantic>=2.10.0",
-    "python-dotenv>=1.0.1",
+    "playwright==1.64.1",
+    "pydantic==2.14.2",
+    "python-dotenv==1.2.4",
+    "pyyaml==6.0.3",
+    "sqlalchemy==2.1.6",
+    "apscheduler==3.11.3",
+    "pyside6==6.12.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
+    "pytest==9.2.0",
+    "pytest-asyncio==1.4.1",
 ]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-

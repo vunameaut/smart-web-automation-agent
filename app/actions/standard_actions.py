@@ -7,7 +7,7 @@ from app.browser.locator_helper import resolve_locator, LocatorConfig
 
 
 class NavigateAction(BaseAction):
-    """Mở URL mục tiêu."""
+    """Mở URL mục tiêu (có kiểm tra an toàn target_domains)."""
 
     async def execute(self, context: ActionContext, params: Dict[str, Any]) -> bool:
         raw_url = params.get("url")
@@ -15,6 +15,9 @@ class NavigateAction(BaseAction):
             raise ValueError("Action 'navigate' yêu cầu tham số 'url'.")
         
         url = context.resolve_template(raw_url)
+        # Kiểm tra target_domains trước khi navigate
+        context.validate_domain(url)
+
         wait_until = params.get("wait_until", "domcontentloaded")
         timeout_ms = params.get("timeout_ms")
         
@@ -126,4 +129,3 @@ class WaitAction(BaseAction):
         context.logger.info(f"Chờ đợi trong {seconds} giây...")
         await asyncio.sleep(seconds)
         return True
-
