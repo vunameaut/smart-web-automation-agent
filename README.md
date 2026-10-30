@@ -79,7 +79,8 @@ autoweb/
 │   │   ├── main_window.py          # PySide6 MainWindow (Pro Control Center)
 │   │   ├── step_dialog.py          # Hộp thoại thêm/sửa từng bước thao tác
 │   │   ├── task_variables_dialog.py# Hộp thoại cấu hình biến số cho Task
-│   │   └── task_worker.py          # Background QThread chạy task không đơ GUI
+│   │   ├── task_worker.py          # Background QThread chạy task không đơ GUI
+│   │   └── scheduler_thread.py     # Background QThread điều phối APScheduler độc lập
 │   │
 │   └── utils/
 │       ├── __init__.py
