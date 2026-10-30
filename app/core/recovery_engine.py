@@ -9,6 +9,7 @@ Tuân thủ Mục 4.5 của tài liệu đặc tả:
 
 import random
 import asyncio
+import inspect
 from enum import Enum
 from typing import Optional, Dict, Any, Callable
 from app.utils.logging_config import get_logger
@@ -65,15 +66,15 @@ class RecoveryEngine:
         err_str = str(exception).lower()
 
         # 1. Phát hiện CAPTCHA / MFA
-        if page_content and any(term in page_content.lower() for term in ["captcha", "recaptcha", "hcaptcha", "xác thực mfa", "otp"]):
+        if page_content and isinstance(page_content, str) and any(term in page_content.lower() for term in ["captcha", "recaptcha", "hcaptcha", "xác thực mfa", "otp"]):
             return ErrorCategory.CAPTCHA_OR_MFA
 
         # 2. Phát hiện Queue hàng đợi ảo
-        if page_content and any(term in page_content.lower() for term in ["vui lòng chờ trong hàng đợi", "you are in line", "waiting room"]):
+        if page_content and isinstance(page_content, str) and any(term in page_content.lower() for term in ["vui lòng chờ trong hàng đợi", "you are in line", "waiting room"]):
             return ErrorCategory.QUEUE_DETECTED
 
         # 3. Hết hạn phiên
-        if page_content and any(term in page_content.lower() for term in ["phiên đăng nhập hết hạn", "session expired", "vui lòng đăng nhập lại"]):
+        if page_content and isinstance(page_content, str) and any(term in page_content.lower() for term in ["phiên đăng nhập hết hạn", "session expired", "vui lòng đăng nhập lại"]):
             return ErrorCategory.SESSION_EXPIRED
 
         # 4. Lỗi máy chủ 5xx
@@ -95,7 +96,6 @@ class RecoveryEngine:
     @staticmethod
     def is_retryable(category: ErrorCategory) -> bool:
         """Xác định loại lỗi có được phép thử lại tự động hay không."""
-        # TUYỆT ĐỐI KHÔNG thử lại tự động nếu gặp CAPTCHA, Session Expired, Queue, hoặc Trạng thái không rõ
         non_retryable = [
             ErrorCategory.CAPTCHA_OR_MFA,
             ErrorCategory.SESSION_EXPIRED,
@@ -109,7 +109,7 @@ class RecoveryEngine:
         self,
         action_fn: Callable[[], Any],
         policy: Optional[RetryPolicy] = None,
-        get_dom_fn: Optional[Callable[[], str]] = None,
+        get_dom_fn: Optional[Callable[[], Any]] = None,
     ) -> Any:
         """Thực thi hàm hành động với cơ chế kiểm soát phục hồi an toàn."""
         pol = policy or RetryPolicy()
@@ -119,7 +119,18 @@ class RecoveryEngine:
             try:
                 return await action_fn()
             except Exception as e:
-                dom_text = get_dom_fn() if get_dom_fn else None
+                # Trích xuất DOM an toàn dù get_dom_fn là async hay sync
+                dom_text = ""
+                if get_dom_fn:
+                    try:
+                        res = get_dom_fn()
+                        if inspect.isawaitable(res):
+                            dom_text = await res
+                        elif isinstance(res, str):
+                            dom_text = res
+                    except Exception:
+                        dom_text = ""
+
                 category = self.classify_error(e, page_content=dom_text)
                 
                 logger.warning(
@@ -140,4 +151,3 @@ class RecoveryEngine:
                 delay = pol.calculate_delay(attempt)
                 logger.info(f"[RECOVERY] Chờ {delay:.2f}s trước khi thử lại lần {attempt + 1}...")
                 await asyncio.sleep(delay)
-

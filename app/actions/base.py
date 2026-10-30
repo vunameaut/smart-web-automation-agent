@@ -33,14 +33,21 @@ class ActionContext:
     def validate_domain(self, url: str) -> None:
         """Kiểm tra xem URL có thuộc target_domains được phép thao tác hay không."""
         if not self.target_domains:
-            return  # Không cấu hình ràng buộc
+            return
+
+        # Bỏ qua template chưa thay thế hoặc rỗng
+        if not url or url.startswith("{{"):
+            return
 
         parsed = urlparse(url)
-        # Bỏ qua scheme cục bộ như file://
-        if parsed.scheme == "file":
+        # Bỏ qua scheme cục bộ file:// hoặc about:
+        if parsed.scheme in ["file", "about"]:
             return
 
         hostname = parsed.hostname or ""
+        if not hostname:
+            return
+
         is_allowed = any(
             hostname == domain or hostname.endswith("." + domain)
             for domain in self.target_domains

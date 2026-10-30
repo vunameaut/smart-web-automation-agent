@@ -26,3 +26,4 @@ def test_target_domains_security_block():
     )
     with pytest.raises(DomainSecurityViolation):
         ctx.validate_domain("https://malicious-site.com/hack")
+

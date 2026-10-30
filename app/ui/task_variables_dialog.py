@@ -70,3 +70,4 @@ class TaskVariablesDialog(QDialog):
 
     def get_variables(self):
         return getattr(self, "result_vars", {})
+

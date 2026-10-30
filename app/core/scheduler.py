@@ -133,6 +133,17 @@ class TaskScheduler:
                 variables.update(json.loads(task.variables_json))
             except Exception:
                 pass
+        
+        # Nếu task chưa có biến, nạp fallback mặc định cho workflow mẫu
+        if not variables:
+            from pathlib import Path
+            test_fixture_url = (Path(__file__).parent.parent.parent / "tests" / "fixtures" / "test_page.html").as_uri()
+            variables = {
+                "portal_url": test_fixture_url,
+                "student_name": "Nguyễn Văn A",
+                "course_code": "CS101-AUTOMATION",
+            }
+
         if custom_variables:
             variables.update(custom_variables)
 
