@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QSpinBox,
     QDialog,
+    QInputDialog,
     QFormLayout,
     QCheckBox,
     QSplitter,
@@ -40,6 +41,7 @@ from app.core.workflow_models import WorkflowDefinition, WorkflowStep
 from app.ui.step_dialog import StepEditorDialog
 from app.ui.task_worker import TaskExecutionWorker
 from app.ui.task_variables_dialog import TaskVariablesDialog
+from app.ui.scheduler_thread import SchedulerThread
 from app.utils.logging_config import get_logger
 
 logger = get_logger("autoweb.ui")
@@ -169,8 +171,9 @@ class MainWindow(QMainWindow):
         self.repo = Repository()
         self.task_manager = TaskManager(repository=self.repo)
         
-        # Khởi động TaskScheduler khi mở app
-        self.task_manager.scheduler.start()
+        # Khởi động TaskScheduler qua SchedulerThread độc lập
+        self.scheduler_thread = SchedulerThread(self.task_manager.scheduler)
+        self.scheduler_thread.start()
 
         self.active_worker = None
         self.current_selected_workflow_id = None
@@ -186,8 +189,9 @@ class MainWindow(QMainWindow):
         self._load_all_data()
 
     def closeEvent(self, event):
-        """Dừng scheduler khi đóng ứng dụng."""
-        self.task_manager.scheduler.shutdown()
+        """Dừng scheduler thread khi đóng ứng dụng."""
+        if hasattr(self, "scheduler_thread") and self.scheduler_thread.isRunning():
+            self.scheduler_thread.stop()
         event.accept()
 
     def _setup_style(self):
@@ -834,7 +838,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Lỗi cú pháp", f"Không thể lưu do lỗi YAML:\n{e}")
 
     def _create_new_workflow(self):
-        new_name, ok = QLineEdit().getText(self, "Tạo Kịch Bản Mới", "Nhập tên kịch bản mới:")
+        new_name, ok = QInputDialog.getText(self, "Tạo Kịch Bản Mới", "Nhập tên kịch bản mới:")
         if ok and new_name.strip():
             new_wf = WorkflowDefinition(
                 name=new_name.strip(),
