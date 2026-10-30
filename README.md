@@ -30,10 +30,12 @@ Tuân thủ tuyệt đối tài liệu đặc tả [SMART_WEB_AUTOMATION_AGENT_P
    - Khởi động bộ lập lịch `APScheduler` tự động khi mở app, nạp lại lịch trình từ cơ sở dữ liệu.
    - Hỗ trợ tính năng **Pre-warming**: Khởi động trước trình duyệt và điều hướng sớm để chuẩn bị giờ cao điểm.
 
-5. **Giao diện Desktop hiện đại (PySide6 Pro Control Center):**
+5. **Giao diện Desktop hiện đại (PySide6 Pro Control Center) & Trình Ghi Thông Minh:**
+   - **🔴 Ghi Thao Tác Trực Tiếp (Smart Web Recorder)**: Không cần gõ CSS/Selector hay viết code. Chỉ cần bấm nút, trình duyệt mở ra và bạn thao tác bằng chuột/bàn phím như người bình thường, hệ thống tự động phân tích DOM và tạo thành kịch bản hoàn chỉnh!
+   - **⚡ Thư Viện Kịch Bản Mẫu (1-Click Presets)**: Cung cấp sẵn các mẫu chuẩn cho Đăng nhập & Lưu phiên, Tìm kiếm & Đọc dữ liệu, Giám sát trang web & Chụp ảnh, Điền form đăng ký.
    - **Bảng Điều Khiển (Dashboard)**: Thống kê số lượng nhiệm vụ, trạng thái chạy và hướng dẫn sử dụng nhanh.
    - **Quản Lý Nhiệm Vụ (Task Manager)**: Tạo nhiệm vụ, cấu hình **Biến số (Variables)** dạng JSON, Đặt lịch chạy tự động, chạy thử an toàn (Dry Run) hoặc chạy thật trên background thread không đơ UI.
-   - **Trình Tạo Kịch Bản (Workflow Builder)**: Hộp thoại trực quan thêm/sửa/xóa từng bước thao tác mà không cần gõ code.
+   - **Trình Tạo Kịch Bản (Workflow Builder)**: Hộp thoại trực quan thêm/sửa/xóa từng bước thao tác hoặc đồng bộ 2 chiều với YAML editor.
    - **Giám Sát Realtime**: Xem log trực tiếp và xem trước ảnh chụp màn hình chứng từ mới nhất.
 
 ---
@@ -65,6 +67,8 @@ autoweb/
 │   │   ├── workflow_models.py      # Pydantic schema cho Workflow & Step
 │   │   ├── workflow_engine.py      # Điều phối thực thi, xác minh & Recovery
 │   │   ├── recovery_engine.py      # Phân loại lỗi, retry policy, backoff + jitter
+│   │   ├── workflow_recorder.py    # AST Parser & chuyển đổi Playwright Codegen sang Workflow
+│   │   ├── workflow_presets.py     # Thư viện kịch bản mẫu 1-click có sẵn
 │   │   ├── scheduler.py            # APScheduler & Pre-warming browser
 │   │   └── task_manager.py         # Quản lý CRUD nhiệm vụ & biến số
 │   │
@@ -79,6 +83,9 @@ autoweb/
 │   │   ├── main_window.py          # PySide6 MainWindow (Pro Control Center)
 │   │   ├── step_dialog.py          # Hộp thoại thêm/sửa từng bước thao tác
 │   │   ├── task_variables_dialog.py# Hộp thoại cấu hình biến số cho Task
+│   │   ├── record_dialog.py        # Hộp thoại ghi thao tác trực quan (Web Recorder)
+│   │   ├── recorder_worker.py      # Background QThread chạy Playwright Codegen
+│   │   ├── preset_dialog.py        # Hộp thoại thư viện kịch bản mẫu 1-click
 │   │   ├── task_worker.py          # Background QThread chạy task không đơ GUI
 │   │   └── scheduler_thread.py     # Background QThread điều phối APScheduler độc lập
 │   │
@@ -94,6 +101,7 @@ autoweb/
 │   │   └── test_page.html          # Trang web thử nghiệm mô phỏng cục bộ
 │   ├── test_browser.py             # Test Browser Controller & Timeout
 │   ├── test_domain_security.py     # Test kiểm tra an toàn Domain
+│   ├── test_recorder.py            # Test AST Parser của Web Recorder
 │   ├── test_scheduler_and_db.py    # Test SQLite CRUD, Scheduler, Recovery
 │   ├── test_ui_step_editor.py      # Test Hộp thoại cấu hình Step UI
 │   └── test_workflow_engine.py     # Test Workflow Engine, YAML, Dry-run
@@ -152,6 +160,10 @@ python main.py
   ```powershell
   python main.py --help
   ```
+- **🔴 Ghi lại thao tác trực tiếp trên trình duyệt bằng CLI:**
+  ```powershell
+  python main.py --record https://example.com
+  ```
 - **Liệt kê danh sách tất cả các Task kèm ID để chạy:**
   ```powershell
   python main.py --list-tasks
@@ -164,7 +176,7 @@ python main.py
 
 ### 4. Chạy toàn bộ Test tự động (Pytest)
 
-Chạy tất cả 16 bài kiểm thử tự động bao quát toàn bộ các tầng kiến trúc:
+Chạy tất cả 18 bài kiểm thử tự động bao quát toàn bộ các tầng kiến trúc:
 ```powershell
 pytest tests/ -v
 ```

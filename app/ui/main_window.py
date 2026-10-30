@@ -42,6 +42,8 @@ from app.ui.step_dialog import StepEditorDialog
 from app.ui.task_worker import TaskExecutionWorker
 from app.ui.task_variables_dialog import TaskVariablesDialog
 from app.ui.scheduler_thread import SchedulerThread
+from app.ui.record_dialog import RecordWorkflowDialog
+from app.ui.preset_dialog import PresetSelectorDialog
 from app.utils.logging_config import get_logger
 
 logger = get_logger("autoweb.ui")
@@ -387,12 +389,12 @@ class MainWindow(QMainWindow):
         b_title = QLabel("👋 Chào mừng bạn đến với Smart Web Automation Agent!")
         b_title.setStyleSheet("color: #38bdf8; font-size: 16px; font-weight: bold;")
         b_desc = QLabel(
-            "Quy trình sử dụng:\n"
-            "• Bước 1: Sang 'Trình Tạo Kịch Bản' để cấu hình các bước tự động hóa (Mở trang, Điền form, Nhấp chuột, Chụp ảnh).\n"
-            "• Bước 2: Vào 'Quản Lý Nhiệm Vụ' để cấu hình Biến Dữ Liệu (URL, thông tin điền), Đặt lịch chạy hoặc Chạy thử Dry-run.\n"
-            "• Bước 3: Xem Chromium thao tác và ảnh chụp màn hình chứng từ tại 'Giám Sát Realtime'."
+            "💡 Cách bắt đầu dễ dàng nhất:\n"
+            "• Cách 1 (Khuyên dùng): Bấm '🔴 Ghi Thao Tác Trực Tiếp' -> Trình duyệt mở ra -> Bạn dùng chuột & phím thao tác bình thường -> Hệ thống tự sinh kịch bản!\n"
+            "• Cách 2 (Nhanh chóng): Bấm '⚡ Chọn Kịch Bản Mẫu' để dùng ngay mẫu Đăng nhập, Tìm kiếm, Điền form có sẵn.\n"
+            "• Cách 3: Vào 'Trình Tạo Kịch Bản' để tự tinh chỉnh chi tiết hoặc viết file YAML theo ý muốn."
         )
-        b_desc.setStyleSheet("color: #cbd5e1; font-size: 13px; line-height: 150%;")
+        b_desc.setStyleSheet("color: #cbd5e1; font-size: 13px; line-height: 160%;")
         b_layout.addWidget(b_title)
         b_layout.addWidget(b_desc)
         layout.addWidget(banner)
@@ -407,16 +409,26 @@ class MainWindow(QMainWindow):
         layout.addLayout(stats_layout)
 
         actions_box = QHBoxLayout()
-        btn_quick_demo = QPushButton("🚀 Chạy Nhanh Demo Trình Duyệt")
-        btn_quick_demo.setProperty("class", "btn-primary")
-        btn_quick_demo.clicked.connect(self._run_quick_demo)
+        btn_record_dashboard = QPushButton("🔴 Ghi Thao Tác Trực Tiếp (Recorder)")
+        btn_record_dashboard.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 10px 18px; border-radius: 6px; font-size: 13px;")
+        btn_record_dashboard.clicked.connect(self._open_record_workflow_modal)
 
-        btn_go_tasks = QPushButton("➕ Tạo Nhiệm Vụ Mới")
+        btn_preset_dashboard = QPushButton("⚡ Chọn Kịch Bản Mẫu (1-Click)")
+        btn_preset_dashboard.setStyleSheet("background-color: #0d9488; color: white; font-weight: bold; padding: 10px 18px; border-radius: 6px; font-size: 13px;")
+        btn_preset_dashboard.clicked.connect(self._open_preset_workflow_modal)
+
+        btn_go_tasks = QPushButton("➕ Thêm Nhiệm Vụ")
         btn_go_tasks.setProperty("class", "btn-success")
         btn_go_tasks.clicked.connect(self._open_create_task_modal)
 
-        actions_box.addWidget(btn_quick_demo)
+        btn_quick_demo = QPushButton("🚀 Chạy Demo")
+        btn_quick_demo.setProperty("class", "btn-primary")
+        btn_quick_demo.clicked.connect(self._run_quick_demo)
+
+        actions_box.addWidget(btn_record_dashboard)
+        actions_box.addWidget(btn_preset_dashboard)
         actions_box.addWidget(btn_go_tasks)
+        actions_box.addWidget(btn_quick_demo)
         actions_box.addStretch()
         layout.addLayout(actions_box)
 
@@ -507,10 +519,20 @@ class MainWindow(QMainWindow):
         self.cbo_active_wf.currentIndexChanged.connect(self._on_active_workflow_changed)
         wf_selector_box.addWidget(self.cbo_active_wf, 1)
 
-        btn_new_wf = QPushButton("➕ Tạo Kịch Bản Mới")
-        btn_new_wf.setProperty("class", "btn-success")
+        btn_new_wf = QPushButton("➕ Tạo Kịch Bản Trống")
+        btn_new_wf.setProperty("class", "btn-primary")
         btn_new_wf.clicked.connect(self._create_new_workflow)
         wf_selector_box.addWidget(btn_new_wf)
+
+        btn_record_wf = QPushButton("🔴 Ghi Thao Tác Trực Tiếp")
+        btn_record_wf.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 13px;")
+        btn_record_wf.clicked.connect(self._open_record_workflow_modal)
+        wf_selector_box.addWidget(btn_record_wf)
+
+        btn_preset_wf = QPushButton("⚡ Kịch Bản Mẫu (1-Click)")
+        btn_preset_wf.setStyleSheet("background-color: #0d9488; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px; font-size: 13px;")
+        btn_preset_wf.clicked.connect(self._open_preset_workflow_modal)
+        wf_selector_box.addWidget(btn_preset_wf)
 
         layout.addLayout(wf_selector_box)
 
@@ -857,6 +879,43 @@ class MainWindow(QMainWindow):
                 if self.cbo_active_wf.itemData(i) == model.id:
                     self.cbo_active_wf.setCurrentIndex(i)
                     break
+
+    def _open_record_workflow_modal(self):
+        dlg = RecordWorkflowDialog(self)
+        if dlg.exec() == QDialog.Accepted and dlg.generated_workflow:
+            wf_def = dlg.generated_workflow
+            saved_model = self.repo.save_workflow(wf_def)
+            self._load_workflow_dropdown()
+            for i in range(self.cbo_active_wf.count()):
+                if self.cbo_active_wf.itemData(i) == saved_model.id:
+                    self.cbo_active_wf.setCurrentIndex(i)
+                    break
+            self._switch_view(2)  # Sang tab Workflow Builder
+            QMessageBox.information(
+                self,
+                "🎉 Ghi Nhận Thành Công!",
+                f"Đã tự động tạo kịch bản '{wf_def.name}' với {len(wf_def.steps)} bước hành động!\n\n"
+                f"Các thao tác chuột & bàn phím của bạn đã được chuyển thành các bước chuẩn mực.\n"
+                f"Bạn có thể xem lại hoặc sang tab 'Quản Lý Nhiệm Vụ' để chạy ngay!",
+            )
+
+    def _open_preset_workflow_modal(self):
+        dlg = PresetSelectorDialog(self)
+        if dlg.exec() == QDialog.Accepted and dlg.selected_workflow:
+            wf_def = dlg.selected_workflow
+            saved_model = self.repo.save_workflow(wf_def)
+            self._load_workflow_dropdown()
+            for i in range(self.cbo_active_wf.count()):
+                if self.cbo_active_wf.itemData(i) == saved_model.id:
+                    self.cbo_active_wf.setCurrentIndex(i)
+                    break
+            self._switch_view(2)
+            QMessageBox.information(
+                self,
+                "⚡ Áp Dụng Mẫu Thành Công!",
+                f"Đã nạp kịch bản mẫu '{wf_def.name}'!\n\n"
+                f"Bạn có thể điều chỉnh URL hoặc thông tin tài khoản cho phù hợp với trang web của bạn.",
+            )
 
     def _toggle_task(self, task_id):
         self.task_manager.toggle_task(task_id)
