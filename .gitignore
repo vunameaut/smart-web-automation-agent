@@ -1,0 +1,24 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+
+# Project Data & Logs
+logs/
+artifacts/
+data/
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+

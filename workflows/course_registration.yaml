@@ -1,0 +1,75 @@
+name: "Đăng ký học phần thử nghiệm"
+version: 1
+description: "Workflow mẫu mô phỏng quy trình mở cổng, nhập thông tin và xác nhận đăng ký."
+target_domains:
+  - "localhost"
+  - "127.0.0.1"
+
+steps:
+  - id: step_open_portal
+    action: navigate
+    description: "Mở trang đăng ký"
+    risk_level: low
+    params:
+      url: "{{portal_url}}"
+      wait_until: "domcontentloaded"
+    verify:
+      type: visible
+      locator:
+        role: heading
+        name: "Cổng thử nghiệm Automation Phase 1"
+
+  - id: step_fill_name
+    action: fill
+    description: "Nhập họ tên sinh viên"
+    risk_level: medium
+    params:
+      locator:
+        label: "Tên người dùng:"
+      value: "{{student_name}}"
+
+  - id: step_fill_course
+    action: fill
+    description: "Nhập mã học phần"
+    risk_level: medium
+    params:
+      locator:
+        placeholder: "Ví dụ: CS101"
+      value: "{{course_code}}"
+
+  - id: step_take_before_shot
+    action: screenshot
+    description: "Chụp ảnh màn hình trước khi gửi"
+    risk_level: low
+    params:
+      name_prefix: "wf_before_submit"
+
+  - id: step_submit_registration
+    action: click
+    description: "Gửi đăng ký cuối cùng"
+    risk_level: high
+    params:
+      locator:
+        role: button
+        name: "Xác nhận đăng ký"
+    verify:
+      type: visible
+      locator:
+        role: status
+
+  - id: step_read_confirmation
+    action: read_text
+    description: "Đọc thông báo kết quả trả về"
+    risk_level: low
+    params:
+      locator:
+        role: status
+      save_to: "confirmed_status"
+
+  - id: step_take_after_shot
+    action: screenshot
+    description: "Chụp ảnh màn hình kết quả sau submit"
+    risk_level: low
+    params:
+      name_prefix: "wf_after_submit"
+
